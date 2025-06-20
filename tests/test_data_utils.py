@@ -23,6 +23,7 @@ from trl.data_utils import (
     apply_chat_template,
     extract_prompt,
     is_conversational,
+    is_conversational_from_value,
     maybe_apply_chat_template,
     maybe_convert_to_chatml,
     maybe_extract_prompt,
@@ -88,10 +89,36 @@ class IsConversationalTester(unittest.TestCase):
         self.assertFalse(is_conversational(example))
 
 
+class IsConversationalFromValueTester(unittest.TestCase):
+    def test_positive_1(self):
+        example = {
+            "conversations": [
+                {"from": "user", "value": "What color is the sky?"},
+                {"from": "assistant", "value": "It is blue."},
+            ],
+        }
+        self.assertTrue(is_conversational_from_value(example))
+
+    def test_negative_1(self):
+        example = {
+            "messages": [
+                {"role": "user", "content": "What color is the sky?"},
+                {"role": "assistant", "content": "It is blue."},
+            ],
+        }
+        self.assertFalse(is_conversational_from_value(example))
+
+    def test_negative_2(self):
+        example = {"text": "The sky is blue."}
+        self.assertFalse(is_conversational_from_value(example))
+
+
 class ApplyChatTemplateTester(unittest.TestCase):
     tokenizers = [
         "trl-internal-testing/tiny-CohereForCausalLM",
         "trl-internal-testing/tiny-DbrxForCausalLM",
+        "trl-internal-testing/tiny-DeepseekV3ForCausalLM",
+        "trl-internal-testing/tiny-DeepseekV3ForCausalLM-0528",
         "trl-internal-testing/tiny-FalconMambaForCausalLM",
         "trl-internal-testing/tiny-Gemma2ForCausalLM",
         "trl-internal-testing/tiny-GemmaForCausalLM",
@@ -142,12 +169,12 @@ class ApplyChatTemplateTester(unittest.TestCase):
     ]
 
     non_conversational_examples = [
-        {"prompt": "The sky is", "completion": " blue."},
-        {"text": "The sky is blue."},
-        {"prompt": "The sky is"},
-        {"prompt": "The sky is", "chosen": " blue.", "rejected": " green."},
-        {"chosen": "The sky is blue.", "rejected": "The sky is green."},
-        {"prompt": "The sky is", "completion": " blue.", "label": True},
+        {"text": "The sky is blue."},  # Language modeling
+        {"prompt": "The sky is"},  # Prompt only
+        {"prompt": "The sky is", "completion": " blue."},  # Prompt-completion
+        {"prompt": "The sky is", "chosen": " blue.", "rejected": " green."},  # Preference
+        {"chosen": "The sky is blue.", "rejected": "The sky is green."},  # Preference with implicit prompt
+        {"prompt": "The sky is", "completion": " blue.", "label": True},  # Unpaired preference
     ]
 
     @parameterized.expand(itertools.product(tokenizers, conversational_examples))
@@ -481,6 +508,7 @@ class TestPackDatasetFfd(unittest.TestCase):
         expected_output = {
             "input_ids": [[4, 5, 6, 7], [1, 2, 3, 8]],
             "attention_mask": [[0, 0, 1, 1], [0, 1, 1, 1]],
+            "position_ids": [[0, 1, 2, 3], [0, 1, 2, 0]],
         }
         dataset = pack_dataset(dataset, seq_length, strategy="ffd")
         self.assertEqual(dataset.to_dict(), expected_output)
@@ -495,6 +523,7 @@ class TestPackDatasetFfd(unittest.TestCase):
         expected_output = {
             "input_ids": [[4, 5, 6, 7], [1, 2, 3, 8]],
             "attention_mask": [[0, 0, 1, 1], [0, 1, 1, 1]],
+            "position_ids": [[0, 1, 2, 3], [0, 1, 2, 0]],
         }
         dataset = pack_dataset(dataset, seq_length, strategy="ffd")
         num_examples = len(examples[next(iter(examples))])
@@ -510,6 +539,7 @@ class TestPackDatasetFfd(unittest.TestCase):
         expected_output = {
             "input_ids": [[1, 2, 3, 4], [8, 9, 10, 11], [6, 7, 12]],
             "attention_mask": [[1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1]],
+            "position_ids": [[0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 0]],
         }
         dataset = pack_dataset(dataset, seq_length, strategy="ffd")
         self.assertEqual(dataset.to_dict(), expected_output)
