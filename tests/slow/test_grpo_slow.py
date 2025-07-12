@@ -22,7 +22,13 @@ from accelerate.utils.memory import release_memory
 from datasets import load_dataset
 from parameterized import parameterized
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from transformers.testing_utils import require_liger_kernel, require_peft, require_torch_accelerator
+from transformers.testing_utils import (
+    backend_empty_cache,
+    require_liger_kernel,
+    require_peft,
+    require_torch_accelerator,
+    torch_device,
+)
 
 from trl import GRPOConfig, GRPOTrainer
 
@@ -39,7 +45,7 @@ class GRPOTrainerSlowTester(unittest.TestCase):
 
     def tearDown(self):
         gc.collect()
-        torch.cuda.empty_cache()
+        backend_empty_cache(torch_device)
         gc.collect()
 
     @parameterized.expand(MODELS_TO_TEST)
@@ -142,6 +148,43 @@ class GRPOTrainerSlowTester(unittest.TestCase):
             # Verify adapter weights have changed after training
             for n, param in previous_trainable_params.items():
                 new_param = trainer.model.get_parameter(n)
+                self.assertFalse(torch.equal(param, new_param), f"Parameter {n} has not changed.")
+
+        release_memory(model, trainer)
+
+    @parameterized.expand(MODELS_TO_TEST)
+    def test_training_with_transformers_paged(self, model_name):
+        """Test that training works with transformers paged implementation (requires GPU)."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            training_args = GRPOConfig(
+                output_dir=tmp_dir,
+                learning_rate=0.1,  # increase the learning rate to speed up the test
+                per_device_train_batch_size=3,  # reduce the batch size to reduce memory usage
+                num_generations=3,  # reduce the number of generations to reduce memory usage
+                max_completion_length=8,  # reduce the completion length to reduce memory usage
+                use_transformers_paged=True,  # Enable transformers paged implementation
+                report_to="none",
+                logging_strategy="no",
+            )
+
+            model = AutoModelForCausalLM.from_pretrained(model_name)
+
+            trainer = GRPOTrainer(
+                model=model,
+                reward_funcs="trl-internal-testing/tiny-Qwen2ForSequenceClassification-2.5",
+                args=training_args,
+                train_dataset=self.train_dataset,
+            )
+
+            previous_trainable_params = {n: param.clone() for n, param in model.named_parameters()}
+
+            trainer.train()
+
+            self.assertIsNotNone(trainer.state.log_history[-1]["train_loss"])
+
+            # Check that the params have changed
+            for n, param in previous_trainable_params.items():
+                new_param = model.get_parameter(n)
                 self.assertFalse(torch.equal(param, new_param), f"Parameter {n} has not changed.")
 
         release_memory(model, trainer)
