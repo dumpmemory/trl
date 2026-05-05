@@ -320,19 +320,11 @@ class KTOTrainer(_BaseTrainer):
                 if param.requires_grad:
                     param.data = param.data.to(torch.bfloat16)
 
-        if args.max_length is None:
-            logger.warning(
-                "When using DataCollatorForUnpairedPreference, you should set `max_length` in the KTOTrainer's init"
-                " it will be set to `512` by default, but you should do it yourself in the future.",
-            )
-            max_length = 512
-        if args.max_length is not None:
-            max_length = args.max_length
-
+        # Data collator
         if data_collator is None:
             data_collator = DataCollatorForUnpairedPreference(
                 pad_token_id=self._tokenizer.pad_token_id,
-                max_length=max_length,
+                max_length=args.max_length,
             )
 
             if args.remove_unused_columns:
@@ -348,7 +340,6 @@ class KTOTrainer(_BaseTrainer):
             self.use_dpo_data_collator = False
 
         self.loss_type = args.loss_type
-        self.max_length = max_length
         self.precompute_ref_log_probs = args.precompute_ref_log_probs
 
         # Not all losses require a KL calculation
